@@ -2,6 +2,8 @@ import { Injectable, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Severity, UserRole } from '@prisma/client';
 import { AlertsService } from '../alerts/alerts.service';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class DefectsService {
@@ -62,5 +64,62 @@ export class DefectsService {
       where: { id, companyId },
       data: { active: false },
     });
+  }
+
+  async syncPythonDefects(companyId: string) {
+    const filePath = path.resolve(process.cwd(), 'data/data/cleaned_defects_list.json');
+    if (!fs.existsSync(filePath)) {
+      return { success: false, message: 'Cleaned defects list file not found on disk.' };
+    }
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const defectsList: string[] = JSON.parse(content);
+      
+      let importedCount = 0;
+      let skippedCount = 0;
+
+      for (const defectName of defectsList) {
+        if (!defectName || typeof defectName !== 'string') continue;
+        
+        const trimmedName = defectName.trim();
+        if (!trimmedName) continue;
+
+        // Check if exists
+        const existing = await this.prisma.defectMaster.findFirst({
+          where: { companyId, name: trimmedName },
+        });
+
+        if (!existing) {
+          await this.prisma.defectMaster.create({
+            data: {
+              name: trimmedName,
+              category: 'Python Sync',
+              severity: 'MEDIUM',
+              defaultAssigneeRole: 'WORKER',
+              ownerVisible: true,
+              soundProfile: 'INFO',
+              companyId,
+            },
+          });
+          importedCount++;
+        } else {
+          skippedCount++;
+        }
+      }
+
+      return {
+        success: true,
+        message: `Successfully synchronized Python defects. Mapped ${importedCount} new defect terms. Skipped ${skippedCount} duplicates.`,
+        importedCount,
+        skippedCount,
+      };
+    } catch (error) {
+      console.error('Failed to sync Python defects:', error);
+      return {
+        success: false,
+        message: `Sync failed: ${error.message || error}`,
+      };
+    }
   }
 }

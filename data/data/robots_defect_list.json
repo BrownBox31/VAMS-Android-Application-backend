@@ -1,0 +1,212 @@
+[
+  {
+    "id": 1001,
+    "defectName": "robotic arm joint 2 servo motor overheating and axis 3 torque limit exceeded",
+    "reworkStationId": 1,
+    "createdAt": "2024-01-16T08:15:00Z",
+    "mispronouncedWords": ["robotik arm joint two servo motor over heating", "axis three tork limit exceeded"]
+  },
+  {
+    "id": 1002,
+    "defectName": "j2 motor temp high / axis-3 torque overload",
+    "reworkStationId": 1,
+    "createdAt": "2024-01-16T08:22:00Z",
+    "mispronouncedWords": ["j two motor temp high", "axis three tork overload"]
+  },
+  {
+    "id": 1003,
+    "defectName": "E-STOP triggered: end-effector pneumatic pressure drop (loose fitting?) + J2 overtemp warning",
+    "reworkStationId": 4,
+    "createdAt": "2024-01-16T08:30:00Z",
+    "mispronouncedWords": ["e stop triggered", "end efektor numatic pressure drop", "j two over temp warning"]
+  },
+  {
+    "id": 1004,
+    "defectName": "welding robot arm 2 joint servo hot, also wire feed motor jammed",
+    "reworkStationId": 1,
+    "createdAt": "2024-01-16T08:45:00Z",
+    "mispronouncedWords": ["welding robot arm two joint servo hot", "wyr feed motor jammed"]
+  },
+  {
+    "id": 1005,
+    "defectName": "gripper finger sensor fail - low pneumatic PSI on suction pad 3",
+    "reworkStationId": 4,
+    "createdAt": "2024-01-16T09:02:00Z",
+    "mispronouncedWords": ["gripr finger sensr fail", "lo numatic psi on sukshen pad three"]
+  },
+  {
+    "id": 1006,
+    "defectName": "joint2 servo overheat error code ERR-8021 and cable harness pinched near elbow",
+    "reworkStationId": 1,
+    "createdAt": "2024-01-16T09:18:00Z",
+    "mispronouncedWords": ["joint two servo over heat error code err eighty twenty one", "kabl harness pinched"]
+  },
+  {
+    "id": 1007,
+    "defectName": "pneumatic air leak at end effector tool flange / low pressure alarm",
+    "reworkStationId": 4,
+    "createdAt": "2024-01-16T09:35:00Z",
+    "mispronouncedWords": ["numatic air leak at end efektor tool flanje", "low preshur alarm"]
+  },
+  {
+    "id": 1008,
+    "defectName": "CANbus communication loss on base controller, arm joint 2 overheating",
+    "reworkStationId": 2,
+    "createdAt": "2024-01-16T09:50:00Z",
+    "mispronouncedWords": ["can bus kommunication loss on base kontroller", "arm joint two over heating"]
+  },
+  {
+    "id": 1009,
+    "defectName": "tool flange pneumatic pressure low & wire feeder motor stall",
+    "reworkStationId": 4,
+    "createdAt": "2024-01-16T10:10:00Z",
+    "mispronouncedWords": ["tool flanje numatik pressure low", "wire feeder motor stall"]
+  },
+  {
+    "id": 1010,
+    "defectName": "axis 2 motor over-temperature fault (ERR8021)",
+    "reworkStationId": 1,
+    "createdAt": "2024-01-16T10:25:00Z",
+    "mispronouncedWords": ["axis two motor over temprature fault err eighty twenty one"]
+  },
+  {
+    "id": 1011,
+    "defectName": "emergency stop input active: main communication bus drop (CANbus link failure)",
+    "reworkStationId": 2,
+    "createdAt": "2024-01-16T10:40:00Z",
+    "mispronouncedWords": ["emerjency stop input aktiv", "main kommunication bus drop", "canbus link falure"]
+  },
+  {
+    "id": 1012,
+    "defectName": "pneumatic pressure loss end-effector tool assembly",
+    "reworkStationId": 4,
+    "createdAt": "2024-01-16T11:05:00Z",
+    "mispronouncedWords": ["numatic preshur loss end efektor tool assembly"]
+  },
+  {
+    "id": 1013,
+    "defectName": "wire feeder drive motor over-current / stalled wire spool",
+    "reworkStationId": 5,
+    "createdAt": "2024-01-16T11:20:00Z",
+    "mispronouncedWords": ["wyr feeder drive motor over curent", "stald wire spool"]
+  },
+  {
+    "id": 1014,
+    "defectName": "Base controller CAN-bus frame drops, frequent disconnects",
+    "reworkStationId": 2,
+    "createdAt": "2024-01-16T11:45:00Z",
+    "mispronouncedWords": ["base kontroller can bus frame drops", "freequent disconeks"]
+  },
+  {
+    "id": 1015,
+    "defectName": "elbow cable bundle pinched - intermittent sensor power loss",
+    "reworkStationId": 3,
+    "createdAt": "2024-01-16T12:00:00Z",
+    "mispronouncedWords": ["elbo kabl bundle pinched", "intermitent sensr power loss"]
+  },
+  {
+    "id": 1016,
+    "defectName": "joint 2 temp exceed warning (ERR8021), gripper pneumatic leak",
+    "reworkStationId": 1,
+    "createdAt": "2024-01-16T12:15:00Z",
+    "mispronouncedWords": ["joint two temp exseed warning err eighty twenty one", "gripr numatic leak"]
+  },
+  {
+    "id": 1017,
+    "defectName": "welding wire feeding motor thermal trip",
+    "reworkStationId": 5,
+    "createdAt": "2024-01-16T12:30:00Z",
+    "mispronouncedWords": ["welding wyr feading motor therml trip"]
+  },
+  {
+    "id": 1018,
+    "defectName": "Vacuum suction pad low pressure on end effector finger 3",
+    "reworkStationId": 4,
+    "createdAt": "2024-01-16T12:50:00Z",
+    "mispronouncedWords": ["vakum sukshen pad low preshur on end efektor finger three"]
+  },
+  {
+    "id": 1019,
+    "defectName": "CAN communication timeout between arm drive and main controller",
+    "reworkStationId": 2,
+    "createdAt": "2024-01-16T13:10:00Z",
+    "mispronouncedWords": ["can kommunication timeout between arm drive and main kontroller"]
+  },
+  {
+    "id": 1020,
+    "defectName": "harness wire pinched at arm articulation joint",
+    "reworkStationId": 3,
+    "createdAt": "2024-01-16T13:25:00Z",
+    "mispronouncedWords": ["harness wyr pinched at arm artikulation joint"]
+  },
+  {
+    "id": 1021,
+    "defectName": "axis 3 high torque resistance, axis 2 motor temp high",
+    "reworkStationId": 1,
+    "createdAt": "2024-01-16T13:40:00Z",
+    "mispronouncedWords": ["axis three hy tork resistance", "axis two motor temp high"]
+  },
+  {
+    "id": 1022,
+    "defectName": "end effector compressed air line leaking",
+    "reworkStationId": 4,
+    "createdAt": "2024-01-16T14:00:00Z",
+    "mispronouncedWords": ["end efektor kompressed air lyn leeking"]
+  },
+  {
+    "id": 1023,
+    "defectName": "wire feed motor overload error",
+    "reworkStationId": 5,
+    "createdAt": "2024-01-16T14:15:00Z",
+    "mispronouncedWords": ["wyr feed motor overlod error"]
+  },
+  {
+    "id": 1024,
+    "defectName": "CAN bus fault line disconnected at base unit",
+    "reworkStationId": 2,
+    "createdAt": "2024-01-16T14:35:00Z",
+    "mispronouncedWords": ["can bus folt line disconekted at base unit"]
+  },
+  {
+    "id": 1025,
+    "defectName": "j2 servo motor overheat (ERR-8021) & pneumatic hose leak",
+    "reworkStationId": 1,
+    "createdAt": "2024-01-16T15:00:00Z",
+    "mispronouncedWords": ["j two servo motor over heat err eighty twenty one", "numatik hose leak"]
+  },
+  {
+    "id": 1026,
+    "defectName": "arm joint 2 motor overheating hazard, severe thermal rise",
+    "reworkStationId": 1,
+    "createdAt": "2024-01-16T15:20:00Z",
+    "mispronouncedWords": ["arm joint two motor over heating hazard", "sever therml rise"]
+  },
+  {
+    "id": 1027,
+    "defectName": "pneumatic air leakage in tool end-effector assembly",
+    "reworkStationId": 4,
+    "createdAt": "2024-01-16T15:40:00Z",
+    "mispronouncedWords": ["numatic air leekage in tool end efektor assembly"]
+  },
+  {
+    "id": 1028,
+    "defectName": "wire feeder drive mechanism jammed / torque limit hit",
+    "reworkStationId": 5,
+    "createdAt": "2024-01-16T16:00:00Z",
+    "mispronouncedWords": ["wire feader drive mekanism jammd", "tork limit hit"]
+  },
+  {
+    "id": 1029,
+    "defectName": "base controller CAN-bus communication error - system drop",
+    "reworkStationId": 2,
+    "createdAt": "2024-01-16T16:15:00Z",
+    "mispronouncedWords": ["base kontroller can bus kommunication error", "sistem drop"]
+  },
+  {
+    "id": 1030,
+    "defectName": "elbow articulation cable harness pinched and damaged",
+    "reworkStationId": 3,
+    "createdAt": "2024-01-16T16:30:00Z",
+    "mispronouncedWords": ["elbo artikulation kabl harness pinched and damajd"]
+  }
+]

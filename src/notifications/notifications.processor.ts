@@ -128,13 +128,25 @@ export class NotificationsProcessor extends WorkerHost {
         alertId = notification.alertId || jobAlertId || '';
         const titleUpper = notification.title.toUpperCase();
         
-        if (notification.alert) {
-          severity = notification.alert.isManual ? 'CRITICAL' : (notification.alert.severity || 'INFO');
-          soundProfile = notification.alert.isManual ? 'CRITICAL' : (notification.alert.defect?.soundProfile || 'ALERT');
+        let alertRecord = notification.alert;
+        if (!alertRecord && alertId && alertId !== 'BROADCAST' && !alertId.startsWith('BROADCAST')) {
+          try {
+            alertRecord = await this.prisma.alert.findUnique({
+              where: { id: alertId },
+              include: { defect: true },
+            });
+          } catch (e) {
+            // ignore
+          }
+        }
+
+        if (alertRecord) {
+          severity = alertRecord.isManual ? 'CRITICAL' : (alertRecord.severity || 'INFO');
+          soundProfile = alertRecord.isManual ? 'CRITICAL' : (alertRecord.defect?.soundProfile || 'ALERT');
         } else {
-          if (alertId === 'BROADCAST' || titleUpper.includes('BROADCAST')) {
-            severity = 'CRITICAL';
-            soundProfile = 'CRITICAL';
+          if (alertId === 'BROADCAST' || alertId.startsWith('BROADCAST') || titleUpper.includes('BROADCAST')) {
+            severity = 'HIGH';
+            soundProfile = 'ALERT';
           } else {
             // Fallback keyword detection for BROADCAST, ESCALATION, REMINDER titles
             if (
@@ -195,9 +207,22 @@ export class NotificationsProcessor extends WorkerHost {
         },
       });
 
-      console.log('Push notification sent successfully:', response, { alertId, severity, soundProfile });
-    } catch (error) {
-      console.error('FCM Error:', error);
+    } catch (error: any) {
+      console.error('FCM Error:', error?.message || error);
+      if (
+        error?.code === 'messaging/registration-token-not-registered' ||
+        error?.errorInfo?.code === 'messaging/registration-token-not-registered' ||
+        error?.response?.data?.error?.message === 'NotRegistered' ||
+        (typeof error?.response?.text === 'string' && error.response.text.includes('NotRegistered'))
+      ) {
+        console.warn(`[FCM] Token for user ${userId} is unregistered. Clearing stale token.`);
+        await this.prisma.user
+          .update({
+            where: { id: userId },
+            data: { fcmToken: null },
+          })
+          .catch(() => {});
+      }
     }
   }
 }

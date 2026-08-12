@@ -36,7 +36,7 @@ export class NotificationsService {
           data: {
             companyId: data.companyId,
             userId: data.userId,
-            alertId: data.alertId && data.alertId !== 'BROADCAST' ? data.alertId : null,
+            alertId: data.alertId && !data.alertId.startsWith('BROADCAST') ? data.alertId : null,
             title: data.title,
             message: data.message,
             channel,

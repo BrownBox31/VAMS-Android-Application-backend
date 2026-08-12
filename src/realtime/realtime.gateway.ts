@@ -40,7 +40,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const roleRoom = `company_${decoded.companyId}_role_${decoded.role}`;
       client.join(roleRoom);
 
-      console.log(`Client ${client.id} joined rooms: [${companyRoom}, ${roleRoom}]`);
+      if (decoded.role === 'SUPER_ADMIN') {
+        client.join('super_admins');
+      }
+
+      console.log(`Client ${client.id} joined rooms: [${companyRoom}, ${roleRoom}${decoded.role === 'SUPER_ADMIN' ? ', super_admins' : ''}]`);
     } catch (err) {
       console.log(`WS Connection validation failed for client ${client.id}:`, err.message);
       client.disconnect();
@@ -54,7 +58,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   // Broadcaster methods
   broadcastToCompany(companyId: string, event: string, payload: any) {
     if (this.server) {
-      this.server.to(`company_${companyId}`).emit(event, payload);
+      if (companyId && companyId !== 'all') {
+        this.server.to(`company_${companyId}`).to('super_admins').emit(event, payload);
+      } else {
+        this.server.emit(event, payload);
+      }
     } else {
       console.warn(`WebSocket server not initialized. Skipping broadcast [${event}]`);
     }
@@ -62,7 +70,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   broadcastToRole(companyId: string, role: string, event: string, payload: any) {
     if (this.server) {
-      this.server.to(`company_${companyId}_role_${role}`).emit(event, payload);
+      this.server.to(`company_${companyId}_role_${role}`).to('super_admins').emit(event, payload);
     } else {
       console.warn(`WebSocket server not initialized. Skipping broadcast [${event}] to role room`);
     }

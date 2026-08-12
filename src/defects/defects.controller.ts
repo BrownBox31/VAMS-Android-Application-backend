@@ -28,6 +28,15 @@ export class DefectsController {
     return this.defectsService.create(companyId, data);
   }
 
+  @Post('sync-python')
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.FACTORY_MANAGER)
+  @ApiOperation({ summary: 'Sync cleaned defect terms from the Python backend data directory into the company defect master catalog' })
+  syncPython(
+    @TenantId() companyId: string,
+  ) {
+    return this.defectsService.syncPythonDefects(companyId);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all active defect types for the company' })
   findAll(@TenantId() companyId: string) {

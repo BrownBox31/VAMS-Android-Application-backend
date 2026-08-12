@@ -54,3 +54,13 @@ desktop.ini
 # Database / Local SQLite
 *.db
 *.db-journal
+
+# Local Redis dump
+dump.rdb
+
+# Temporary test scripts
+check_recent_alerts.js
+test_webhook_direct.js
+
+# Sub-projects / Separate Git Repositories
+vams-android/

@@ -30,6 +30,7 @@ export class AlertsService {
     message?: string;
     loopCompleted?: boolean;
     targetUserIds?: string[];
+    targetRoles?: string[];
   }) {
     console.log('[DEBUG Ingest] Incoming Payload:', payload);
     // 1. Validate company exists
@@ -42,20 +43,30 @@ export class AlertsService {
 
     // Handle Broadcast event type
     if (payload.event_type === 'BROADCAST') {
+      const orConditions: any[] = [];
+      if (payload.targetUserIds && payload.targetUserIds.length > 0) {
+        orConditions.push({ id: { in: payload.targetUserIds } });
+      }
+      if (payload.targetRoles && payload.targetRoles.length > 0) {
+        orConditions.push({ role: { in: payload.targetRoles } });
+      }
+
       const activeUsers = await this.prisma.user.findMany({
         where: {
-          companyId: payload.companyId,
           isActive: true,
-          ...(payload.targetUserIds && payload.targetUserIds.length > 0 && {
-            id: { in: payload.targetUserIds }
-          })
+          ...(payload.companyId && payload.companyId !== 'all' ? { companyId: payload.companyId } : {}),
+          ...(orConditions.length > 0 ? { OR: orConditions } : {}),
         },
       });
 
+      const broadcastId = `BROADCAST_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
       this.realtime.broadcastToCompany(payload.companyId, 'BROADCAST_CREATED', {
+        broadcastId,
         title: payload.title || 'Company Broadcast',
         message: payload.message || '',
         targetUserIds: payload.targetUserIds || null,
+        targetRoles: payload.targetRoles || null,
       });
 
       (async () => {
@@ -63,10 +74,11 @@ export class AlertsService {
           const crypto = require('crypto');
           await Promise.all(
             activeUsers.map(async (u) => {
+              const userBroadcastId = `${broadcastId}_${u.id}`;
               await this.notifications.enqueueNotification({
-                companyId: payload.companyId,
+                companyId: payload.companyId && payload.companyId !== 'all' ? payload.companyId : u.companyId,
                 userId: u.id,
-                alertId: 'BROADCAST',
+                alertId: userBroadcastId,
                 title: payload.title || 'Company Broadcast',
                 message: payload.message || '',
                 channels: [NotificationChannel.PUSH, NotificationChannel.IN_APP],
@@ -75,7 +87,7 @@ export class AlertsService {
               await this.prisma.alertNotificationLog.create({
                 data: {
                   id: crypto.randomUUID(),
-                  alertId: 'BROADCAST',
+                  alertId: userBroadcastId,
                   userId: u.id,
                   type: 'BROADCAST',
                   message: payload.message || '',
@@ -102,11 +114,16 @@ export class AlertsService {
       }
 
       const targetUserId = payload.assignedToUserId;
-      let targetUsers = [];
+      const targetRole = payload.assignedToRole;
+      let targetUsers: any[] = [];
       if (payload.loopCompleted) {
         // Loop completed, notify all active users of the company (admin fallback)
         targetUsers = await this.prisma.user.findMany({
           where: { companyId: payload.companyId, isActive: true }
+        });
+      } else if (targetRole) {
+        targetUsers = await this.prisma.user.findMany({
+          where: { companyId: payload.companyId, role: targetRole as any, isActive: true }
         });
       } else if (targetUserId) {
         const u = await this.prisma.user.findUnique({ where: { id: targetUserId } });
@@ -121,7 +138,7 @@ export class AlertsService {
         severity: alert.severity,
         status: alert.status,
         assignedToUserId: targetUserId || null,
-        assignedToRole: targetUsers[0]?.role || null,
+        assignedToRole: targetRole || (targetUsers[0]?.role || null),
         soundProfile: alert.defect?.soundProfile || 'CRITICAL',
         createdAt: alert.createdAt,
       });
@@ -137,7 +154,7 @@ export class AlertsService {
               userId: user.id,
               alertId: alert.id,
               title: payload.loopCompleted ? `SLA FALLBACK ALERT: ${alert.defectName}` : `ESCALATED ALERT: ${alert.defectName}`,
-              message: payload.message || `Alert escalated to ${isYou ? 'you' : user.name}.`,
+              message: payload.message || `Alert escalated to ${isYou ? 'you' : (targetRole ? `role ${targetRole}` : user.name)}.`,
               channels: [NotificationChannel.PUSH, NotificationChannel.IN_APP],
             });
 
@@ -147,7 +164,7 @@ export class AlertsService {
                 alertId: alert.id,
                 userId: user.id,
                 type: 'ESCALATION',
-                message: payload.message || `Alert escalated to ${isYou ? 'you' : user.name}.`,
+                message: payload.message || `Alert escalated to ${isYou ? 'you' : (targetRole ? `role ${targetRole}` : user.name)}.`,
               },
             });
           }
@@ -246,9 +263,7 @@ export class AlertsService {
 
     // Determine active sound profile based on severity override
     let activeSoundProfile = defect.soundProfile;
-    if (payload.source === 'admin-portal') {
-      activeSoundProfile = 'CRITICAL';
-    } else if (payload.severity) {
+    if (payload.severity) {
       if (payload.severity === 'CRITICAL' || payload.severity === 'EMERGENCY') {
         activeSoundProfile = 'CRITICAL';
       } else if (payload.severity === 'HIGH') {
@@ -334,7 +349,7 @@ export class AlertsService {
       id: alert.id,
       vin: alert.vin,
       defectName: defect.name,
-      severity: payload.source === 'admin-portal' ? 'CRITICAL' : alert.severity,
+      severity: alert.severity,
       status: alert.status,
       assignedToUserId: alert.assignedToUserId,
       assignedToRole: alert.assignedToRole,
@@ -358,8 +373,8 @@ export class AlertsService {
           }
         }
 
-        // Determine target users to notify
-        const targetUsers = (payload.source === 'admin-portal' || criticalOverride || finalSeverity === 'CRITICAL' || finalSeverity === 'EMERGENCY')
+        // Determine target users to notify (notify target assignee only unless critical/emergency/criticalOverride or manual dispatch)
+        const targetUsers = (criticalOverride || finalSeverity === 'CRITICAL' || finalSeverity === 'EMERGENCY' || payload.source === 'admin-portal')
           ? await this.prisma.user.findMany({ where: { companyId: payload.companyId, isActive: true } })
           : await this.prisma.user.findMany({
               where: {
@@ -378,7 +393,7 @@ export class AlertsService {
               companyId: payload.companyId,
               userId: user.id,
               alertId: finalAlert.id,
-              title: `CRITICAL ALERT: ${finalDefect.name}`,
+              title: `${finalSeverity} ALERT: ${finalDefect.name}`,
               message: payload.message || `New defect '${finalDefect.name}' is assigned to ${isYou ? 'you' : assigneeName}.`,
               channels: [NotificationChannel.PUSH, NotificationChannel.IN_APP],
             });
@@ -500,13 +515,18 @@ export class AlertsService {
 
       // Defect Lifecycle timeline update
       const targetName = data.assignedToUserId ? `User ID ${data.assignedToUserId}` : `Role ${data.assignedToRole}`;
+      const isTakeover = performedByUserId === data.assignedToUserId;
+      const detailsText = isTakeover
+        ? `Alert taken over by ${user.name} (${user.role}). Notes: ${data.notes || 'None'}`
+        : `Alert assigned by ${user.name} (${user.role}) to ${targetName}. Notes: ${data.notes || 'None'}`;
+
       await tx.defectResolutionTimeline.create({
         data: {
           alertId,
-          actionType: 'ASSIGNED',
+          actionType: isTakeover ? 'TAKEOVER' : 'ASSIGNED',
           performedByUserId,
           performedByRole: user.role,
-          details: `Alert assigned to ${targetName}. Notes: ${data.notes || 'None'}`,
+          details: detailsText,
         },
       });
 

@@ -1,0 +1,37 @@
+
+Group 1
+ - robotic arm joint 2 servo motor overheating
+ - joint 2 servo overheat
+ - joint 2 servo motor overheat ERR-8021
+
+Group 2
+ - axis 3 torque limit exceeded
+ - axis 3 torque overload
+ - axis 3 high torque resistance
+
+Group 3
+ - suction pad 3 low pneumatic pressure
+ - vacuum suction pad low pressure
+
+Group 4
+ - cable harness pinched near elbow
+ - elbow cable bundle pinched
+ - harness wire pinched at arm articulation joint
+ - elbow articulation cable harness pinched
+ - elbow articulation cable harness damaged
+
+Group 5
+ - pneumatic air leak at end effector tool flange
+ - pneumatic air leakage in tool end effector assembly
+
+Group 6
+ - CAN bus communication loss on base controller
+ - base controller CAN bus communication error
+
+Group 7
+ - arm joint 2 overheating
+ - arm joint 2 motor overheating
+
+Group 8
+ - axis 2 motor over-temperature fault
+ - axis 2 motor temperature high
