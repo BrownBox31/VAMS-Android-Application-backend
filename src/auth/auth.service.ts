@@ -10,9 +10,9 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async login(loginDto: LoginDto) {
-    // Resolve company ID if company name is passed in companyId
-    let targetCompanyId = loginDto.companyId;
+  async login(loginDto: any) {
+    // Resolve company ID if company name is passed (supports both companyId and companyIdOrName)
+    let targetCompanyId = loginDto.companyId || loginDto.companyIdOrName;
     if (targetCompanyId) {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetCompanyId);
       if (!isUuid) {
@@ -45,8 +45,9 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // In production, use bcrypt/argon2 hashing comparison
-    const passwordIsValid = user.passwordHash === loginDto.password; 
+    // Support both password and passwordHash
+    const incomingPassword = loginDto.password || loginDto.passwordHash;
+    const passwordIsValid = user.passwordHash === incomingPassword; 
     if (!passwordIsValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
