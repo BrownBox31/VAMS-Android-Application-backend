@@ -90,7 +90,7 @@ async function main() {
       email: 'sbodkhe@gmail.com',
       passwordHash: 'Bajaj@123',
       name: 'S Bodkhe',
-      role: 'SUPER_ADMIN',
+      role: 'COMPANY_ADMIN',
       companyId: companyBajaj.id,
     },
   });
