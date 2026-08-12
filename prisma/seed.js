@@ -39,6 +39,22 @@ async function main() {
     },
   });
 
+  const companyBajaj = await prisma.company.create({
+    data: {
+      id: 'b812efd9-a412-4011-9a99-b1d5e3cdae99',
+      name: 'Bajaj',
+      settings: {
+        create: {
+          soundInfo: 'soft_bell.wav',
+          soundWarning: 'chime.wav',
+          soundCritical: 'alarm.wav',
+          soundEmergency: 'siren.wav',
+          escalationGraceMin: 1440,
+        },
+      },
+    },
+  });
+
   const companyBeta = await prisma.company.create({
     data: {
       id: 'c201efd9-b412-5011-8b99-a1d5e3cdae02',
@@ -65,6 +81,17 @@ async function main() {
       name: 'Super Admin User',
       role: 'SUPER_ADMIN',
       companyId: companyAlpha.id,
+    },
+  });
+
+  const bajajAdmin = await prisma.user.create({
+    data: {
+      id: 'f90fa27d-f421-49e0-82a8-fdbd5bc2c399',
+      email: 'sbodkhe@gmail.com',
+      passwordHash: 'Bajaj@123',
+      name: 'S Bodkhe',
+      role: 'SUPER_ADMIN',
+      companyId: companyBajaj.id,
     },
   });
 
