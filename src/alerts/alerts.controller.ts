@@ -105,20 +105,24 @@ export class AlertsController {
   @ApiQuery({ name: 'severity', enum: Severity, required: false })
   @ApiQuery({ name: 'assignedToUserId', type: String, required: false })
   @ApiQuery({ name: 'assignedToRole', enum: UserRole, required: false })
+  @ApiQuery({ name: 'allVisible', type: Boolean, required: false })
   @ApiOperation({ summary: 'List alerts with optional filtering' })
   findAllAlerts(
     @TenantId() companyId: string,
+    @Request() req: any,
     @Query('status') status?: AlertStatus,
     @Query('severity') severity?: Severity,
     @Query('assignedToUserId') assignedToUserId?: string,
     @Query('assignedToRole') assignedToRole?: UserRole,
+    @Query('allVisible') allVisible?: string,
   ) {
     return this.alertsService.findAlerts(companyId, {
       status,
       severity,
       assignedToUserId,
       assignedToRole,
-    });
+      allVisible: allVisible === 'true',
+    }, req.user);
   }
 
   @Get('dashboard')
@@ -126,8 +130,8 @@ export class AlertsController {
   @UseInterceptors(TenantInterceptor)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get aggregated statistics for user dashboard visual charts' })
-  getDashboard(@TenantId() companyId: string) {
-    return this.alertsService.getDashboardTelemetry(companyId);
+  getDashboard(@TenantId() companyId: string, @Request() req: any) {
+    return this.alertsService.getDashboardTelemetry(companyId, req.user);
   }
 
   @Get(':id')

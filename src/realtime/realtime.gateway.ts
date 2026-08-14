@@ -40,11 +40,24 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const roleRoom = `company_${decoded.companyId}_role_${decoded.role}`;
       client.join(roleRoom);
 
+      // Join user specific room for targeted notifications
+      const userRoom = `company_${decoded.companyId}_user_${decoded.sub}`;
+      client.join(userRoom);
+
+      // Detect if browser (web client) to route dashboard events without sending push notifications to mobile apps
+      const userAgent = (client.handshake.headers['user-agent'] || '').toLowerCase();
+      const isBrowser = userAgent.includes('mozilla') || userAgent.includes('chrome') || userAgent.includes('safari') || userAgent.includes('firefox');
+      let webRoom = '';
+      if (isBrowser) {
+        webRoom = `company_${decoded.companyId}_web`;
+        client.join(webRoom);
+      }
+
       if (decoded.role === 'SUPER_ADMIN') {
         client.join('super_admins');
       }
 
-      console.log(`Client ${client.id} joined rooms: [${companyRoom}, ${roleRoom}${decoded.role === 'SUPER_ADMIN' ? ', super_admins' : ''}]`);
+      console.log(`Client ${client.id} joined rooms: [${companyRoom}, ${roleRoom}, ${userRoom}${webRoom ? ', ' + webRoom : ''}${decoded.role === 'SUPER_ADMIN' ? ', super_admins' : ''}]`);
     } catch (err) {
       console.log(`WS Connection validation failed for client ${client.id}:`, err.message);
       client.disconnect();
@@ -58,6 +71,28 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   // Broadcaster methods
   broadcastToCompany(companyId: string, event: string, payload: any) {
     if (this.server) {
+      if (event === 'BROADCAST_CREATED' && (payload.targetUserIds?.length || payload.targetRoles?.length)) {
+        const rooms: string[] = [];
+        if (payload.targetUserIds) {
+          for (const uId of payload.targetUserIds) {
+            rooms.push(`company_${companyId}_user_${uId}`);
+          }
+        }
+        if (payload.targetRoles) {
+          for (const role of payload.targetRoles) {
+            rooms.push(`company_${companyId}_role_${role}`);
+          }
+        }
+        if (rooms.length > 0) {
+          let builder = this.server.to(rooms[0]);
+          for (let i = 1; i < rooms.length; i++) {
+            builder = builder.to(rooms[i]);
+          }
+          builder.emit(event, payload);
+          return;
+        }
+      }
+
       if (companyId && companyId !== 'all') {
         this.server.to(`company_${companyId}`).to('super_admins').emit(event, payload);
       } else {
@@ -73,6 +108,53 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       this.server.to(`company_${companyId}_role_${role}`).to('super_admins').emit(event, payload);
     } else {
       console.warn(`WebSocket server not initialized. Skipping broadcast [${event}] to role room`);
+    }
+  }
+
+  broadcastAlert(companyId: string, event: string, payload: any) {
+    if (this.server) {
+      const assignedToUserId = payload.assignedToUserId;
+      const assignedToRole = payload.assignedToRole;
+      const prevAssignedToUserId = payload.prevAssignedToUserId;
+      const prevAssignedToRole = payload.prevAssignedToRole;
+      const steppedFromRole = payload.steppedFromRole;
+
+      // 1. Emit full alert payload (with title and message) only to targeted rooms
+      let targetBuilder = null;
+      if (assignedToUserId) {
+        targetBuilder = targetBuilder ? targetBuilder.to(`company_${companyId}_user_${assignedToUserId}`) : this.server.to(`company_${companyId}_user_${assignedToUserId}`);
+      }
+      if (assignedToRole) {
+        targetBuilder = targetBuilder ? targetBuilder.to(`company_${companyId}_role_${assignedToRole}`) : this.server.to(`company_${companyId}_role_${assignedToRole}`);
+      }
+      if (targetBuilder) {
+        targetBuilder.emit(event, payload);
+      }
+
+      // 2. Emit silent update (without title and message) to previous assignee/role rooms
+      const silentPayload = { ...payload };
+      delete silentPayload.title;
+      delete silentPayload.message;
+
+      let silentBuilder = null;
+      if (prevAssignedToUserId) {
+        const prevUserRoom = `company_${companyId}_user_${prevAssignedToUserId}`;
+        silentBuilder = silentBuilder ? silentBuilder.to(prevUserRoom) : this.server.to(prevUserRoom);
+      }
+      if (prevAssignedToRole) {
+        const prevRoleRoom = `company_${companyId}_role_${prevAssignedToRole}`;
+        silentBuilder = silentBuilder ? silentBuilder.to(prevRoleRoom) : this.server.to(prevRoleRoom);
+      }
+      if (steppedFromRole) {
+        const steppedFromRoom = `company_${companyId}_role_${steppedFromRole}`;
+        silentBuilder = silentBuilder ? silentBuilder.to(steppedFromRoom) : this.server.to(steppedFromRoom);
+      }
+
+      if (silentBuilder) {
+        silentBuilder.emit(event, silentPayload);
+      }
+    } else {
+      console.warn(`WebSocket server not initialized. Skipping broadcastAlert [${event}]`);
     }
   }
 }

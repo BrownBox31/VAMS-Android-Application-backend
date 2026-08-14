@@ -1,6 +1,7 @@
 import { IsString, IsNotEmpty, IsOptional, IsEnum, IsArray } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { UserRole, Severity } from '@prisma/client';
+import { Transform } from 'class-transformer';
 
 export class IngestEventDto {
   @ApiProperty({ example: 'voice-inspection', description: 'Source system of the event' })
@@ -49,6 +50,11 @@ export class IngestEventDto {
   assignedToUserId?: string;
 
   @ApiProperty({ enum: UserRole, example: 'WORKER', required: false, description: 'Role to assign the alert to' })
+  @Transform(({ value }) => {
+    if (value === 'ADMIN' || value === 'Admin') return UserRole.COMPANY_ADMIN;
+    if (value === 'MANAGER' || value === 'Manager') return UserRole.FACTORY_MANAGER;
+    return value;
+  })
   @IsEnum(UserRole)
   @IsOptional()
   assignedToRole?: UserRole;
@@ -68,6 +74,12 @@ export class IngestEventDto {
   @IsString({ each: true })
   @IsOptional()
   targetUserIds?: string[];
+
+  @ApiProperty({ enum: UserRole, isArray: true, example: ['WORKER'], required: false, description: 'Roles to target for broadcast' })
+  @IsArray()
+  @IsEnum(UserRole, { each: true })
+  @IsOptional()
+  targetRoles?: UserRole[];
 
   @ApiProperty({ example: true, required: false, description: 'Flag indicating whether SLA escalation loop has completed' })
   @IsOptional()

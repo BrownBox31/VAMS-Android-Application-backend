@@ -32,7 +32,11 @@ export class RegisterDto {
     required: false,
     default: 'WORKER',
   })
-  @Transform(({ value }) => value === 'MANAGER' ? UserRole.FACTORY_MANAGER : value)
+  @Transform(({ value }) => {
+    if (value === 'ADMIN' || value === 'Admin') return UserRole.COMPANY_ADMIN;
+    if (value === 'MANAGER' || value === 'Manager') return UserRole.FACTORY_MANAGER;
+    return value;
+  })
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole;
