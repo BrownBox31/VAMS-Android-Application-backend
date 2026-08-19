@@ -122,10 +122,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       // 1. Emit full alert payload (with title and message) only to targeted rooms
       let targetBuilder = null;
       if (assignedToUserId) {
-        targetBuilder = targetBuilder ? targetBuilder.to(`company_${companyId}_user_${assignedToUserId}`) : this.server.to(`company_${companyId}_user_${assignedToUserId}`);
-      }
-      if (assignedToRole) {
-        targetBuilder = targetBuilder ? targetBuilder.to(`company_${companyId}_role_${assignedToRole}`) : this.server.to(`company_${companyId}_role_${assignedToRole}`);
+        targetBuilder = this.server.to(`company_${companyId}_user_${assignedToUserId}`);
+      } else if (assignedToRole) {
+        if (assignedToRole === 'COMPANY_ADMIN' || assignedToRole === 'SUPER_ADMIN') {
+          targetBuilder = this.server
+            .to(`company_${companyId}_role_COMPANY_ADMIN`)
+            .to(`company_${companyId}_role_SUPER_ADMIN`);
+        } else {
+          targetBuilder = this.server.to(`company_${companyId}_role_${assignedToRole}`);
+        }
       }
       if (targetBuilder) {
         targetBuilder.emit(event, payload);
@@ -133,26 +138,51 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
       // 2. Emit silent update (without title and message) to previous assignee/role rooms
       const silentPayload = { ...payload };
-      delete silentPayload.title;
-      delete silentPayload.message;
+      const isTakeover = event === 'ALERT_ASSIGNED' && payload.assignedToUserId && !payload.prevAssignedToUserId;
+      if (isTakeover) {
+        silentPayload.isTakeoverNotification = true;
+      } else {
+        delete silentPayload.title;
+        delete silentPayload.message;
+      }
 
       let silentBuilder = null;
       if (prevAssignedToUserId) {
         const prevUserRoom = `company_${companyId}_user_${prevAssignedToUserId}`;
-        silentBuilder = silentBuilder ? silentBuilder.to(prevUserRoom) : this.server.to(prevUserRoom);
-      }
-      if (prevAssignedToRole) {
-        const prevRoleRoom = `company_${companyId}_role_${prevAssignedToRole}`;
-        silentBuilder = silentBuilder ? silentBuilder.to(prevRoleRoom) : this.server.to(prevRoleRoom);
-      }
-      if (steppedFromRole) {
-        const steppedFromRoom = `company_${companyId}_role_${steppedFromRole}`;
-        silentBuilder = silentBuilder ? silentBuilder.to(steppedFromRoom) : this.server.to(steppedFromRoom);
+        silentBuilder = this.server.to(prevUserRoom);
+      } else {
+        if (prevAssignedToRole) {
+          if (prevAssignedToRole === 'COMPANY_ADMIN' || prevAssignedToRole === 'SUPER_ADMIN') {
+            silentBuilder = this.server
+              .to(`company_${companyId}_role_COMPANY_ADMIN`)
+              .to(`company_${companyId}_role_SUPER_ADMIN`);
+          } else {
+            const prevRoleRoom = `company_${companyId}_role_${prevAssignedToRole}`;
+            silentBuilder = silentBuilder ? silentBuilder.to(prevRoleRoom) : this.server.to(prevRoleRoom);
+          }
+        }
+        if (steppedFromRole) {
+          if (steppedFromRole === 'COMPANY_ADMIN' || steppedFromRole === 'SUPER_ADMIN') {
+            silentBuilder = silentBuilder
+              ? silentBuilder.to(`company_${companyId}_role_COMPANY_ADMIN`).to(`company_${companyId}_role_SUPER_ADMIN`)
+              : this.server.to(`company_${companyId}_role_COMPANY_ADMIN`).to(`company_${companyId}_role_SUPER_ADMIN`);
+          } else {
+            const steppedFromRoom = `company_${companyId}_role_${steppedFromRole}`;
+            silentBuilder = silentBuilder ? silentBuilder.to(steppedFromRoom) : this.server.to(steppedFromRoom);
+          }
+        }
       }
 
       if (silentBuilder) {
         silentBuilder.emit(event, silentPayload);
       }
+
+      // 3. Emit dashboard-sync signal (sync-only event) to web and super admin rooms
+      const syncPayload = { ...payload, isSyncOnly: true };
+      this.server
+        .to(`company_${companyId}_web`)
+        .to('super_admins')
+        .emit(event, syncPayload);
     } else {
       console.warn(`WebSocket server not initialized. Skipping broadcastAlert [${event}]`);
     }

@@ -70,12 +70,25 @@ model User {
   comments          ResolutionComment[]
   resolutions       Resolution[]
   activityLogs      UserActivityLog[]
+  deviceTokens      UserDeviceToken[]
   company           Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, email])
   @@index([companyId])
   @@index([role])
   @@map("users")
+}
+
+model UserDeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([userId])
+  @@map("user_device_tokens")
 }
 
 /// Audit trail of user activities
@@ -342,6 +355,7 @@ enum AlertStatus {
   IN_PROGRESS
   RESOLVED
   REOPENED
+  BREACHED
 }
 
 /// Channels for message delivery

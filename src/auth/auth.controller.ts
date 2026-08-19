@@ -38,4 +38,17 @@ export class AuthController {
   async updateDeviceToken(@Request() req: any, @Body() updateDeviceTokenDto: UpdateDeviceTokenDto) {
     return this.authService.updateDeviceToken(req.user.id, updateDeviceTokenDto.token);
   }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Logout and deactivate device push token' })
+  @ApiResponse({ status: 200, description: 'Successfully logged out and token removed' })
+  async logout(@Request() req: any, @Body() body: { token?: string }) {
+    if (body.token) {
+      await this.authService.removeDeviceToken(req.user.id, body.token);
+    }
+    return { success: true };
+  }
 }

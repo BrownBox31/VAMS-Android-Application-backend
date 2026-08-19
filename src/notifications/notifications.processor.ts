@@ -173,15 +173,26 @@ export class NotificationsProcessor extends WorkerHost {
       console.error('[sendPush] Error querying database for notification metadata:', dbErr);
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        fcmToken: true,
-      },
+    // Fetch all tokens from UserDeviceToken
+    const deviceTokens = await this.prisma.userDeviceToken.findMany({
+      where: { userId },
+      select: { token: true },
     });
+    
+    const tokens = new Set<string>();
+    deviceTokens.forEach(t => tokens.add(t.token));
 
-    if (!user?.fcmToken) {
-      console.log(`No FCM token found for user ${userId}`);
+    // Also fallback to User.fcmToken
+    const userRecord = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { fcmToken: true },
+    });
+    if (userRecord?.fcmToken) {
+      tokens.add(userRecord.fcmToken);
+    }
+
+    if (tokens.size === 0) {
+      console.log(`No registered push tokens found for user ${userId}`);
       return;
     }
 
@@ -190,38 +201,47 @@ export class NotificationsProcessor extends WorkerHost {
       return;
     }
 
-    try {
-      // Send a high-priority data-only message so that onMessageReceived triggers
-      // and plays the custom sound even if the app is in the background or closed.
-      const response = await getMessaging().send({
-        token: user.fcmToken,
-        data: {
-          alertId,
-          severity,
-          soundProfile,
-          title,
-          message,
-        },
-        android: {
-          priority: 'high',
-        },
-      });
+    for (const token of tokens) {
+      try {
+        // Send a high-priority data-only message so that onMessageReceived triggers
+        // and plays the custom sound even if the app is in the background or closed.
+        await getMessaging().send({
+          token,
+          data: {
+            alertId,
+            severity,
+            soundProfile,
+            title,
+            message,
+          },
+          android: {
+            priority: 'high',
+          },
+        });
+      } catch (error: any) {
+        console.error(`FCM Error for token ${token} of user ${userId}:`, error?.message || error);
+        
+        const isNotRegistered = 
+          error?.code === 'messaging/registration-token-not-registered' ||
+          error?.errorInfo?.code === 'messaging/registration-token-not-registered' ||
+          error?.response?.data?.error?.message === 'NotRegistered' ||
+          (typeof error?.response?.text === 'string' && error.response.text.includes('NotRegistered'));
+          
+        if (isNotRegistered) {
+          console.warn(`[FCM] Token ${token} for user ${userId} is unregistered. Clearing stale token.`);
+          // Delete from UserDeviceToken
+          await this.prisma.userDeviceToken.deleteMany({
+            where: { userId, token },
+          }).catch(() => {});
 
-    } catch (error: any) {
-      console.error('FCM Error:', error?.message || error);
-      if (
-        error?.code === 'messaging/registration-token-not-registered' ||
-        error?.errorInfo?.code === 'messaging/registration-token-not-registered' ||
-        error?.response?.data?.error?.message === 'NotRegistered' ||
-        (typeof error?.response?.text === 'string' && error.response.text.includes('NotRegistered'))
-      ) {
-        console.warn(`[FCM] Token for user ${userId} is unregistered. Clearing stale token.`);
-        await this.prisma.user
-          .update({
-            where: { id: userId },
-            data: { fcmToken: null },
-          })
-          .catch(() => {});
+          // Also clear from User.fcmToken if it matches
+          if (userRecord && userRecord.fcmToken === token) {
+            await this.prisma.user.update({
+              where: { id: userId },
+              data: { fcmToken: null },
+            }).catch(() => {});
+          }
+        }
       }
     }
   }

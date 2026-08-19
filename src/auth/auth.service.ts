@@ -39,6 +39,9 @@ export class AuthService {
         },
         ...(targetCompanyId ? { companyId: targetCompanyId } : {}),
       },
+      include: {
+        company: true,
+      },
     });
 
     if (!user) {
@@ -52,7 +55,14 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const payload = { sub: user.id, email: user.email, role: user.role, companyId: user.companyId };
+    const payload = { 
+      sub: user.id, 
+      email: user.email, 
+      role: user.role, 
+      companyId: user.companyId,
+      companyName: user.company.name,
+      companyCode: user.company.name,
+    };
 
     return {
       accessToken: this.jwtService.sign(payload),
@@ -62,6 +72,8 @@ export class AuthService {
         name: user.name,
         role: user.role,
         companyId: user.companyId,
+        companyName: user.company.name,
+        companyCode: user.company.name,
       },
     };
   }
@@ -170,10 +182,48 @@ export class AuthService {
   }
 
   async updateDeviceToken(userId: string, token: string) {
-    return this.prisma.user.update({
+    // 1. Check if token already registered for this user
+    const existing = await this.prisma.userDeviceToken.findFirst({
+      where: { userId, token },
+    });
+    if (!existing) {
+      await this.prisma.userDeviceToken.create({
+        data: { userId, token },
+      });
+    }
+
+    // 2. Fallback to also update User.fcmToken field to keep legacy single-token queries working
+    await this.prisma.user.update({
       where: { id: userId },
       data: { fcmToken: token },
-      select: { id: true, email: true, name: true, fcmToken: true },
     });
+
+    return { success: true };
+  }
+
+  async removeDeviceToken(userId: string, token: string) {
+    // 1. Delete token from UserDeviceToken table
+    await this.prisma.userDeviceToken.deleteMany({
+      where: { userId, token },
+    });
+
+    // 2. If it was the main fcmToken fallback, clear it or set to the next available token
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { fcmToken: true },
+    });
+
+    if (user && user.fcmToken === token) {
+      const nextToken = await this.prisma.userDeviceToken.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      });
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { fcmToken: nextToken ? nextToken.token : null },
+      });
+    }
+
+    return { success: true };
   }
 }

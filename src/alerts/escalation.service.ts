@@ -32,10 +32,10 @@ export class EscalationService implements OnModuleInit {
   async processEscalations() {
     const now = new Date();
 
-    // Query active alerts requiring immediate escalation
+    // Query active alerts requiring immediate escalation (excluding RESOLVED and BREACHED)
     const overdueAlerts = await this.prisma.alert.findMany({
       where: {
-        status: { not: AlertStatus.RESOLVED },
+        status: { notIn: [AlertStatus.RESOLVED, AlertStatus.BREACHED] },
         nextEscalationAt: { lte: now },
       },
       include: {
@@ -73,13 +73,11 @@ export class EscalationService implements OnModuleInit {
     else if (alert.severity === Severity.LOW) incrementMin = 1440;
     else incrementMin = 4320;
 
-    // Upward severity-based tier escalation hierarchy
+    // Upward severity-based tier escalation hierarchy (used as standard fallback reference)
     if (currentRole === UserRole.WORKER || currentRole === UserRole.QUALITY_INSPECTOR || currentRole === UserRole.SERVICE_ENGINEER) {
       nextRole = UserRole.SUPERVISOR;
     } else if (currentRole === UserRole.SUPERVISOR) {
       nextRole = UserRole.COMPANY_ADMIN;
-    } else if (currentRole === UserRole.COMPANY_ADMIN) {
-      nextRole = UserRole.SUPER_ADMIN;
     } else {
       nextRole = UserRole.SUPER_ADMIN;
     }
@@ -89,7 +87,6 @@ export class EscalationService implements OnModuleInit {
       where: {
         companyId: alert.companyId,
         severity: alert.severity,
-        escalateToRole: nextRole,
         isActive: true,
       },
     });
@@ -101,7 +98,7 @@ export class EscalationService implements OnModuleInit {
     let nextEscalationAt = new Date(Date.now() + incrementMin * 60 * 1000);
 
     let nextUserId: string | null = null;
-    let nextUserRole: UserRole = nextRole;
+    let nextUserRole: UserRole | null = null;
 
     let definitionChain: string[] = [];
     let escalationTimeoutMin = incrementMin;
@@ -118,16 +115,27 @@ export class EscalationService implements OnModuleInit {
       }
     }
 
+    let isBreached = false;
+    let breachedReason = '';
+
     if (definitionChain.length > 0) {
       const nextChainIndex = alert.escalationStep;
       
       if (nextChainIndex < definitionChain.length) {
         const nextTarget = definitionChain[nextChainIndex];
+        let resolved = false;
         
         if (nextTarget.startsWith('ROLE:')) {
           const targetRoleStr = nextTarget.substring(5).toUpperCase();
-          nextUserRole = targetRoleStr as UserRole;
+          if (Object.values(UserRole).includes(targetRoleStr as any)) {
+            nextUserRole = targetRoleStr as UserRole;
+            nextUserId = null;
+            resolved = true;
+          }
+        } else if (Object.values(UserRole).includes(nextTarget.toUpperCase() as any)) {
+          nextUserRole = nextTarget.toUpperCase() as UserRole;
           nextUserId = null;
+          resolved = true;
         } else {
           const nextUser = await this.prisma.user.findUnique({
             where: { id: nextTarget },
@@ -135,20 +143,23 @@ export class EscalationService implements OnModuleInit {
           if (nextUser) {
             nextUserId = nextUser.id;
             nextUserRole = nextUser.role;
-          } else {
-            nextUserRole = nextRole;
-            nextUserId = null;
+            resolved = true;
           }
         }
-        incrementMin = escalationTimeoutMin;
-        nextEscalationAt = new Date(Date.now() + incrementMin * 60 * 1000);
+
+        if (resolved) {
+          incrementMin = escalationTimeoutMin;
+          nextEscalationAt = new Date(Date.now() + incrementMin * 60 * 1000);
+        } else {
+          isBreached = true;
+          breachedReason = `SYSTEM BREACH: Escalation target could not be resolved: ${nextTarget}`;
+        }
       } else {
-        nextUserRole = UserRole.COMPANY_ADMIN;
-        nextUserId = null;
-        incrementMin = escalationTimeoutMin;
-        nextEscalationAt = new Date(Date.now() + incrementMin * 60 * 1000);
+        isBreached = true;
+        breachedReason = 'SYSTEM BREACH: Reached end of custom escalation chain.';
       }
     } else {
+      // Use DefaultSeverityChain (EscalationRule table)
       const escalationRules = await this.prisma.escalationRule.findMany({
         where: {
           companyId: alert.companyId,
@@ -159,55 +170,67 @@ export class EscalationService implements OnModuleInit {
       });
 
       if (escalationRules.length > 0) {
-        const ruleIndex = Math.min(alert.escalationStep, escalationRules.length - 1);
-        const rule = escalationRules[ruleIndex];
-        nextUserRole = rule.escalateToRole;
-        nextUserId = null;
-        incrementMin = rule.escalateAfterDays * 24 * 60;
-        nextEscalationAt = new Date(Date.now() + incrementMin * 60 * 1000);
+        const ruleIndex = alert.escalationStep;
+        if (ruleIndex < escalationRules.length) {
+          const rule = escalationRules[ruleIndex];
+          nextUserRole = rule.escalateToRole;
+          nextUserId = null;
+          incrementMin = rule.escalateAfterDays * 24 * 60;
+          nextEscalationAt = new Date(Date.now() + incrementMin * 60 * 1000);
+        } else {
+          isBreached = true;
+          breachedReason = 'SYSTEM BREACH: Reached end of default severity escalation chain.';
+        }
       } else {
-        const overrideRule = await this.prisma.escalationRule.findFirst({
+        // No default severity chain configured at all!
+        isBreached = true;
+        breachedReason = 'SYSTEM BREACH: No DefaultSeverityChain configured for this severity.';
+      }
+    }
+
+    // Ensure escalation climbs to the next role tier to prevent infinite loop or staying in the same role (only if not using custom escalation chain)
+    if (!isBreached && definitionChain.length === 0 && nextUserRole === currentRole) {
+      if (currentRole === UserRole.WORKER || currentRole === UserRole.QUALITY_INSPECTOR || currentRole === UserRole.SERVICE_ENGINEER) {
+        nextUserRole = UserRole.SUPERVISOR;
+      } else if (currentRole === UserRole.SUPERVISOR) {
+        nextUserRole = UserRole.COMPANY_ADMIN;
+      } else {
+        nextUserRole = UserRole.SUPER_ADMIN;
+      }
+      nextUserId = null; // Clear nextUserId so it assigns to the new role generally first
+    }
+
+    if (!isBreached) {
+      // Query active candidate users of the resolved target escalation role
+      let candidateUsers = await this.prisma.user.findMany({
+        where: {
+          companyId: alert.companyId,
+          isActive: true,
+          role: nextUserRole as UserRole,
+        },
+        orderBy: { id: 'asc' },
+      });
+
+      if (candidateUsers.length === 0) {
+        candidateUsers = await this.prisma.user.findMany({
           where: {
             companyId: alert.companyId,
-            severity: alert.severity,
-            escalateToRole: nextRole,
             isActive: true,
+            role: { notIn: ['SUPER_ADMIN', 'COMPANY_ADMIN'] },
           },
+          orderBy: { id: 'asc' },
         });
+      }
 
-        if (overrideRule) {
-          incrementMin = overrideRule.escalateAfterDays * 24 * 60;
-        }
-        nextEscalationAt = new Date(Date.now() + incrementMin * 60 * 1000);
-
-        if (alert.assignedToUserId) {
-          let candidateUsers = await this.prisma.user.findMany({
-            where: {
-              companyId: alert.companyId,
-              isActive: true,
-              role: nextRole,
-            },
-            orderBy: { id: 'asc' },
-          });
-
-          if (candidateUsers.length === 0) {
-            candidateUsers = await this.prisma.user.findMany({
-              where: {
-                companyId: alert.companyId,
-                isActive: true,
-                role: { notIn: ['SUPER_ADMIN', 'COMPANY_ADMIN'] },
-              },
-              orderBy: { id: 'asc' },
-            });
-          }
-
-          if (candidateUsers.length > 0) {
-            const currentIndex = candidateUsers.findIndex((u) => u.id === alert.assignedToUserId);
-            const nextUser = candidateUsers[(currentIndex + 1) % candidateUsers.length];
-            nextUserId = nextUser.id;
-            nextUserRole = nextUser.role;
-          }
-        }
+      if (candidateUsers.length > 0) {
+        const currentIndex = alert.assignedToUserId ? candidateUsers.findIndex((u) => u.id === alert.assignedToUserId) : -1;
+        const nextUser = currentIndex !== -1
+          ? candidateUsers[(currentIndex + 1) % candidateUsers.length]
+          : candidateUsers[0];
+        nextUserId = nextUser.id;
+        nextUserRole = nextUser.role;
+      } else {
+        nextUserId = null;
       }
     }
 
@@ -231,11 +254,45 @@ export class EscalationService implements OnModuleInit {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // Verify that the alert has not been resolved in the meantime
+      const dbAlert = await tx.alert.findUnique({
+        where: { id: alert.id },
+        select: { status: true },
+      });
+      if (!dbAlert || dbAlert.status === AlertStatus.RESOLVED) {
+        return;
+      }
+
+      if (isBreached) {
+        await tx.alert.update({
+          where: { id: alert.id },
+          data: {
+            status: AlertStatus.BREACHED,
+            nextEscalationAt: null, // Cancel all further timings
+          },
+        });
+
+        await tx.alertAssignment.updateMany({
+          where: { alertId: alert.id, status: 'OPEN' },
+          data: { status: 'ESCALATED' },
+        });
+
+        await tx.defectResolutionTimeline.create({
+          data: {
+            alertId: alert.id,
+            actionType: 'BREACHED',
+            details: breachedReason,
+          },
+        });
+
+        return;
+      }
+
       // Update Alert Step
       await tx.alert.update({
         where: { id: alert.id },
         data: {
-          assignedToRole: nextUserRole,
+          assignedToRole: nextUserRole as UserRole,
           assignedToUserId: nextUserId,
           escalationStep: nextStep,
           nextEscalationAt,
@@ -270,7 +327,7 @@ export class EscalationService implements OnModuleInit {
         data: {
           alertId: alert.id,
           steppedFromRole: currentRole,
-          steppedToRole: nextUserRole,
+          steppedToRole: nextUserRole as UserRole,
           notes: `Escalated due to response SLA timeout (${incrementMin} mins).`,
         },
       });
@@ -288,35 +345,51 @@ export class EscalationService implements OnModuleInit {
       });
     });
 
+    if (isBreached) {
+      this.realtime.broadcastAlert(alert.companyId, 'ALERT_UPDATED', {
+        id: alert.id,
+        vin: alert.vin,
+        defectName: alert.defectName,
+        severity: alert.severity,
+        status: AlertStatus.BREACHED,
+        assignedToUserId: alert.assignedToUserId,
+        assignedToRole: alert.assignedToRole,
+        soundProfile: alert.defect?.soundProfile || 'CRITICAL',
+        createdAt: alert.createdAt,
+      });
+      return;
+    }
+
     // Notify Real-Time room dashboard (targeted)
     this.realtime.broadcastAlert(alert.companyId, 'ALERT_ESCALATED', {
       alertId: alert.id,
       steppedFromRole: currentRole,
-      steppedToRole: nextUserRole,
+      steppedToRole: nextUserRole as UserRole,
       assignedToUserId: nextUserId,
-      assignedToRole: nextUserRole,
+      assignedToRole: nextUserRole as UserRole,
+      prevAssignedToUserId: alert.assignedToUserId,
+      prevAssignedToRole: alert.assignedToRole,
     });
 
     this.realtime.broadcastAlert(alert.companyId, 'ALERT_ASSIGNED', {
       alertId: alert.id,
       assignedToUserId: nextUserId,
-      assignedToRole: nextUserRole,
+      assignedToRole: nextUserRole as UserRole,
       prevAssignedToUserId: alert.assignedToUserId,
       prevAssignedToRole: alert.assignedToRole,
       title: `Alert Escalated: ${alert.defect?.name || 'Alert'}`,
       message: `Overdue alert for VIN ${alert.vin || 'N/A'} has been escalated/reassigned.`,
     });
 
-    // Determine user IDs to notify
-    let notifyUserIds: string[] = [];
-    if (nextUserId) {
-      notifyUserIds.push(nextUserId);
-    } else {
-      const targetMembers = await this.prisma.user.findMany({
-        where: { companyId: alert.companyId, role: nextUserRole, isActive: true },
-      });
-      notifyUserIds = targetMembers.map((m) => m.id);
-    }
+    // Determine user IDs to notify (notify all active users of the nextUserRole)
+    const targetMembers = await this.prisma.user.findMany({
+      where: {
+        companyId: alert.companyId,
+        role: nextUserRole as any,
+        isActive: true,
+      },
+    });
+    const notifyUserIds = targetMembers.map((m) => m.id);
 
     // Enqueue notifications for target members
     for (const userId of notifyUserIds) {
@@ -327,27 +400,6 @@ export class EscalationService implements OnModuleInit {
         title: `ESCALATED ALERT: ${alert.defect?.name || 'Alert'}`,
         message: `Overdue alert for VIN ${alert.vin || 'N/A'} escalated to you (${nextUserRole}).`,
         channels: [NotificationChannel.PUSH, NotificationChannel.IN_APP],
-      });
-    }
-
-    // Send warning notification to all admins in the company
-    const admins = await this.prisma.user.findMany({
-      where: {
-        companyId: alert.companyId,
-        isActive: true,
-        role: { in: ['COMPANY_ADMIN', 'SUPER_ADMIN'] },
-      },
-    });
-
-    const assigneeDesc = nextUserId ? `User ID ${nextUserId}` : `role ${nextUserRole}`;
-    for (const admin of admins) {
-      await this.notifications.enqueueNotification({
-        companyId: alert.companyId,
-        userId: admin.id,
-        alertId: alert.id,
-        title: `ADMIN WARNING: Unresolved Alert Escalated`,
-        message: `Alert for VIN ${alert.vin || 'N/A'} was not taken over by the assignee and has been escalated to ${assigneeDesc}.`,
-        channels: [NotificationChannel.PUSH, NotificationChannel.EMAIL, NotificationChannel.IN_APP],
       });
     }
   }

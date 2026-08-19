@@ -9,6 +9,7 @@ import {
   UseInterceptors,
   Request,
   Query,
+  Headers,
 } from '@nestjs/common';
 import { AlertsService } from './alerts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -110,6 +111,7 @@ export class AlertsController {
   findAllAlerts(
     @TenantId() companyId: string,
     @Request() req: any,
+    @Headers('user-agent') userAgent?: string,
     @Query('status') status?: AlertStatus,
     @Query('severity') severity?: Severity,
     @Query('assignedToUserId') assignedToUserId?: string,
@@ -122,6 +124,7 @@ export class AlertsController {
       assignedToUserId,
       assignedToRole,
       allVisible: allVisible === 'true',
+      userAgent,
     }, req.user);
   }
 
@@ -130,8 +133,14 @@ export class AlertsController {
   @UseInterceptors(TenantInterceptor)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get aggregated statistics for user dashboard visual charts' })
-  getDashboard(@TenantId() companyId: string, @Request() req: any) {
-    return this.alertsService.getDashboardTelemetry(companyId, req.user);
+  @ApiQuery({ name: 'allVisible', type: Boolean, required: false })
+  getDashboard(
+    @TenantId() companyId: string, 
+    @Request() req: any,
+    @Headers('user-agent') userAgent?: string,
+    @Query('allVisible') allVisible?: string
+  ) {
+    return this.alertsService.getDashboardTelemetry(companyId, req.user, allVisible === 'true', userAgent);
   }
 
   @Get(':id')

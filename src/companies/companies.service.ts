@@ -56,11 +56,16 @@ export class CompaniesService {
   }
 
   async findOne(idOrName: string) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrName);
+    const trimmedIdOrName = idOrName?.trim();
+    if (!trimmedIdOrName) {
+      throw new NotFoundException('Company not found');
+    }
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmedIdOrName);
     let company = null;
     if (isUuid) {
       company = await this.prisma.company.findUnique({
-        where: { id: idOrName },
+        where: { id: trimmedIdOrName },
       });
     }
 
@@ -68,7 +73,7 @@ export class CompaniesService {
       company = await this.prisma.company.findFirst({
         where: {
           name: {
-            equals: idOrName,
+            equals: trimmedIdOrName,
             mode: 'insensitive'
           }
         },
@@ -76,38 +81,7 @@ export class CompaniesService {
     }
 
     if (!company) {
-      try {
-        company = await this.prisma.$transaction(async (tx) => {
-          const newComp = await tx.company.create({
-            data: { name: idOrName },
-          });
-
-          await tx.companySettings.create({
-            data: {
-              companyId: newComp.id,
-              soundInfo: 'soft_bell.mp3',
-              soundWarning: 'chime.mp3',
-              soundCritical: 'alarm.mp3',
-              soundEmergency: 'siren.mp3',
-            },
-          });
-
-          return newComp;
-        });
-      } catch (err) {
-        // Uniqueness race condition: check if it was created in the meantime
-        company = await this.prisma.company.findFirst({
-          where: {
-            name: {
-              equals: idOrName,
-              mode: 'insensitive'
-            }
-          },
-        });
-        if (!company) {
-          throw err;
-        }
-      }
+      throw new NotFoundException('Company not found');
     }
     return company;
   }
