@@ -327,8 +327,12 @@ export class AlertsService {
       if (payload.alertDefinitionId && alertDefinition) {
         const primaryId = alertDefinition.primaryAssigneeId;
         if (primaryId) {
-          if (primaryId.startsWith('ROLE:')) {
-            targetRole = primaryId.substring(5).toUpperCase();
+          if (primaryId.startsWith('ROLE:') || primaryId.startsWith('role_')) {
+            const prefixLen = primaryId.startsWith('ROLE:') ? 5 : 5;
+            targetRole = primaryId.substring(prefixLen).toUpperCase();
+            targetUserId = null;
+          } else if (Object.values(UserRole).includes(primaryId.toUpperCase() as any)) {
+            targetRole = primaryId.toUpperCase();
             targetUserId = null;
           } else {
             const targetUser = await this.prisma.user.findUnique({
@@ -558,21 +562,30 @@ export class AlertsService {
       detailsText = `MANUAL ADMIN OVERRIDE: Alert reassigned by Admin ${user.name} to ${targetDesc}. Notes: ${data.notes || 'None'}`;
     } else {
       // Same-role peer reassignment (non-admin)
-      if (alert.assignedToUserId !== performedByUserId) {
-        throw new ForbiddenException('Only the current assignee can reassign this alert');
-      }
-      if (alert.status !== AlertStatus.IN_PROGRESS) {
-        throw new BadRequestException('Alert must be taken over before reassigning');
-      }
-      if (!targetUser) {
-        throw new BadRequestException('Same-role peer reassignment requires a specific target user ID');
-      }
-      if (targetUser.role !== user.role) {
-        throw new BadRequestException('You can only reassign to a peer of the same role');
-      }
+      const isSelfTakeover = data.assignedToUserId === performedByUserId &&
+                            alert.assignedToUserId === null &&
+                            user.role === alert.assignedToRole;
 
-      actionType = 'REASSIGNED_SAME_ROLE';
-      detailsText = `Alert reassigned by peer ${user.name} to ${targetUser.name}. Notes: ${data.notes || 'None'}`;
+      if (!isSelfTakeover) {
+        if (alert.assignedToUserId !== performedByUserId) {
+          throw new ForbiddenException('Only the current assignee can reassign this alert');
+        }
+        if (alert.status !== AlertStatus.IN_PROGRESS) {
+          throw new BadRequestException('Alert must be taken over before reassigning');
+        }
+        if (!targetUser) {
+          throw new BadRequestException('Same-role peer reassignment requires a specific target user ID');
+        }
+        if (targetUser.role !== user.role) {
+          throw new BadRequestException('You can only reassign to a peer of the same role');
+        }
+
+        actionType = 'REASSIGNED_SAME_ROLE';
+        detailsText = `Alert reassigned by peer ${user.name} to ${targetUser.name}. Notes: ${data.notes || 'None'}`;
+      } else {
+        actionType = 'TAKEOVER';
+        detailsText = `Alert taken over by ${user.name} (${user.role}). Notes: ${data.notes || 'None'}`;
+      }
     }
 
     let targetUserRole = data.assignedToRole || null;
@@ -1047,7 +1060,6 @@ export class AlertsService {
         { assignedToUserId: userId },
         {
           assignedToRole: userRole as any,
-          status: { in: [AlertStatus.OPEN, AlertStatus.REOPENED] },
         },
       ];
     }
@@ -1154,7 +1166,6 @@ export class AlertsService {
           { assignedToUserId: userId },
           { 
             assignedToRole: userRole as any,
-            status: { in: [AlertStatus.OPEN, AlertStatus.REOPENED] },
           },
         ];
       }
@@ -1292,7 +1303,7 @@ export class AlertsService {
       if (user.role !== 'SUPER_ADMIN' && user.role !== 'COMPANY_ADMIN') {
         const isCurrentlyAssigned =
           alert.assignedToUserId === userId ||
-          (alert.assignedToUserId === null && alert.assignedToRole === user.role);
+          alert.assignedToRole === user.role;
 
         if (!isCurrentlyAssigned) {
           const wasPreviouslyAssigned = await this.prisma.alertAssignmentHistory.findFirst({
@@ -1463,7 +1474,7 @@ export class AlertsService {
           },
           data: {
             assignedToUserId: userId,
-            assignedToRole: alert.assignedToRole ? alert.assignedToRole : user.role,
+            assignedToRole: user.role,
             status: AlertStatus.IN_PROGRESS,
             nextEscalationAt: null, // Cancel escalations on takeover!
           },
@@ -1514,7 +1525,7 @@ export class AlertsService {
             alertId,
             assignedByUserId: userId,
             assignedToUserId: userId,
-            assignedToRole: alert.assignedToRole ? alert.assignedToRole : user.role,
+            assignedToRole: user.role,
             notes: 'Alert taken over by user',
           },
         });

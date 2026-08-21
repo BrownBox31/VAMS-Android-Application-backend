@@ -35,7 +35,7 @@ export class EscalationService implements OnModuleInit {
     // Query active alerts requiring immediate escalation (excluding RESOLVED and BREACHED)
     const overdueAlerts = await this.prisma.alert.findMany({
       where: {
-        status: { notIn: [AlertStatus.RESOLVED, AlertStatus.BREACHED] },
+        status: { in: [AlertStatus.OPEN, AlertStatus.REOPENED] },
         nextEscalationAt: { lte: now },
       },
       include: {
@@ -125,8 +125,9 @@ export class EscalationService implements OnModuleInit {
         const nextTarget = definitionChain[nextChainIndex];
         let resolved = false;
         
-        if (nextTarget.startsWith('ROLE:')) {
-          const targetRoleStr = nextTarget.substring(5).toUpperCase();
+        if (nextTarget.startsWith('ROLE:') || nextTarget.startsWith('role_')) {
+          const prefixLen = nextTarget.startsWith('ROLE:') ? 5 : 5;
+          const targetRoleStr = nextTarget.substring(prefixLen).toUpperCase();
           if (Object.values(UserRole).includes(targetRoleStr as any)) {
             nextUserRole = targetRoleStr as UserRole;
             nextUserId = null;
@@ -200,9 +201,11 @@ export class EscalationService implements OnModuleInit {
       nextUserId = null; // Clear nextUserId so it assigns to the new role generally first
     }
 
+    let candidateUsers: any[] = [];
+
     if (!isBreached) {
       // Query active candidate users of the resolved target escalation role
-      let candidateUsers = await this.prisma.user.findMany({
+      candidateUsers = await this.prisma.user.findMany({
         where: {
           companyId: alert.companyId,
           isActive: true,
@@ -210,32 +213,10 @@ export class EscalationService implements OnModuleInit {
         },
         orderBy: { id: 'asc' },
       });
-
-      if (candidateUsers.length === 0) {
-        candidateUsers = await this.prisma.user.findMany({
-          where: {
-            companyId: alert.companyId,
-            isActive: true,
-            role: { notIn: ['SUPER_ADMIN', 'COMPANY_ADMIN'] },
-          },
-          orderBy: { id: 'asc' },
-        });
-      }
-
-      if (candidateUsers.length > 0) {
-        const currentIndex = alert.assignedToUserId ? candidateUsers.findIndex((u) => u.id === alert.assignedToUserId) : -1;
-        const nextUser = currentIndex !== -1
-          ? candidateUsers[(currentIndex + 1) % candidateUsers.length]
-          : candidateUsers[0];
-        nextUserId = nextUser.id;
-        nextUserRole = nextUser.role;
-      } else {
-        nextUserId = null;
-      }
+      nextUserId = null;
     }
 
     let prevUserName = alert.assignedToUserId || 'N/A';
-    let nextUserName = nextUserId || 'N/A';
 
     if (alert.assignedToUserId) {
       const u = await this.prisma.user.findUnique({
@@ -243,14 +224,6 @@ export class EscalationService implements OnModuleInit {
         select: { name: true },
       });
       if (u) prevUserName = u.name;
-    }
-
-    if (nextUserId) {
-      const u = await this.prisma.user.findUnique({
-        where: { id: nextUserId },
-        select: { name: true },
-      });
-      if (u) nextUserName = u.name;
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -293,7 +266,7 @@ export class EscalationService implements OnModuleInit {
         where: { id: alert.id },
         data: {
           assignedToRole: nextUserRole as UserRole,
-          assignedToUserId: nextUserId,
+          assignedToUserId: null, // Assign generally to the role tier, not a single user
           escalationStep: nextStep,
           nextEscalationAt,
         },
@@ -305,13 +278,13 @@ export class EscalationService implements OnModuleInit {
         data: { status: 'ESCALATED' },
       });
 
-      // Create new active assignment
-      if (nextUserId) {
+      // Create new active assignment for all candidate users of the next role
+      for (const u of candidateUsers) {
         await tx.alertAssignment.create({
           data: {
             alertId: alert.id,
             severity: alert.severity,
-            assignedToId: nextUserId,
+            assignedToId: u.id,
             assignedAt: new Date(),
             notifiedAt: new Date(),
             seenAt: null,
@@ -333,9 +306,7 @@ export class EscalationService implements OnModuleInit {
       });
 
       // Log in audit timeline
-      const details = nextUserId
-        ? `SYSTEM REASSIGNMENT: User ${prevUserName} did not take over the alert. Reassigned to next user: ${nextUserName} (${nextUserRole}).`
-        : `SYSTEM ESCALATION: Overdue. Escalated assignment from role ${currentRole} to role ${nextUserRole}.`;
+      const details = `SYSTEM ESCALATION: Overdue. Escalated assignment from role ${currentRole} to role ${nextUserRole}. Assigned to all users of this role.`;
       await tx.defectResolutionTimeline.create({
         data: {
           alertId: alert.id,
@@ -365,7 +336,7 @@ export class EscalationService implements OnModuleInit {
       alertId: alert.id,
       steppedFromRole: currentRole,
       steppedToRole: nextUserRole as UserRole,
-      assignedToUserId: nextUserId,
+      assignedToUserId: null,
       assignedToRole: nextUserRole as UserRole,
       prevAssignedToUserId: alert.assignedToUserId,
       prevAssignedToRole: alert.assignedToRole,
@@ -373,23 +344,16 @@ export class EscalationService implements OnModuleInit {
 
     this.realtime.broadcastAlert(alert.companyId, 'ALERT_ASSIGNED', {
       alertId: alert.id,
-      assignedToUserId: nextUserId,
+      assignedToUserId: null,
       assignedToRole: nextUserRole as UserRole,
       prevAssignedToUserId: alert.assignedToUserId,
       prevAssignedToRole: alert.assignedToRole,
       title: `Alert Escalated: ${alert.defect?.name || 'Alert'}`,
-      message: `Overdue alert for VIN ${alert.vin || 'N/A'} has been escalated/reassigned.`,
+      message: `Overdue alert for VIN ${alert.vin || 'N/A'} has been escalated/reassigned to role ${nextUserRole}.`,
     });
 
     // Determine user IDs to notify (notify all active users of the nextUserRole)
-    const targetMembers = await this.prisma.user.findMany({
-      where: {
-        companyId: alert.companyId,
-        role: nextUserRole as any,
-        isActive: true,
-      },
-    });
-    const notifyUserIds = targetMembers.map((m) => m.id);
+    const notifyUserIds = candidateUsers.map((m) => m.id);
 
     // Enqueue notifications for target members
     for (const userId of notifyUserIds) {

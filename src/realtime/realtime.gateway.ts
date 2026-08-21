@@ -120,20 +120,25 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const steppedFromRole = payload.steppedFromRole;
 
       // 1. Emit full alert payload (with title and message) only to targeted rooms
-      let targetBuilder = null;
+      const targetRooms: string[] = [];
       if (assignedToUserId) {
-        targetBuilder = this.server.to(`company_${companyId}_user_${assignedToUserId}`);
-      } else if (assignedToRole) {
+        targetRooms.push(`company_${companyId}_user_${assignedToUserId}`);
+      }
+      if (assignedToRole) {
         if (assignedToRole === 'COMPANY_ADMIN' || assignedToRole === 'SUPER_ADMIN') {
-          targetBuilder = this.server
-            .to(`company_${companyId}_role_COMPANY_ADMIN`)
-            .to(`company_${companyId}_role_SUPER_ADMIN`);
+          targetRooms.push(`company_${companyId}_role_COMPANY_ADMIN`);
+          targetRooms.push(`company_${companyId}_role_SUPER_ADMIN`);
         } else {
-          targetBuilder = this.server.to(`company_${companyId}_role_${assignedToRole}`);
+          targetRooms.push(`company_${companyId}_role_${assignedToRole}`);
         }
       }
-      if (targetBuilder) {
-        targetBuilder.emit(event, payload);
+
+      if (targetRooms.length > 0) {
+        let operator: any = this.server;
+        for (const room of targetRooms) {
+          operator = operator.to(room);
+        }
+        operator.emit(event, payload);
       }
 
       // 2. Emit silent update (without title and message) to previous assignee/role rooms
