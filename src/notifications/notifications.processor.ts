@@ -201,12 +201,25 @@ export class NotificationsProcessor extends WorkerHost {
       return;
     }
 
+    const titleUpper = title.toUpperCase();
+    const isTaskAction = titleUpper.includes('RESOLVED') || titleUpper.includes('REOPEN') || titleUpper.includes('HANDOVER') || titleUpper.includes('ASSIGN') || titleUpper.includes('TAKEOVER') || titleUpper.includes('TAKE OVER');
+    const isSiren = (severity.toUpperCase() === 'CRITICAL' || severity.toUpperCase() === 'EMERGENCY' || soundProfile.toUpperCase() === 'CRITICAL') && !isTaskAction;
+    const isBeep = severity.toUpperCase() === 'HIGH' || severity.toUpperCase() === 'MEDIUM' || soundProfile.toUpperCase() === 'ALERT' || isTaskAction;
+
+    const targetChannelId = isSiren 
+      ? 'vams_siren_alerts_v8' 
+      : (isBeep ? 'vams_beep_alerts_v8' : 'vams_default_alerts_v8');
+
     for (const token of tokens) {
       try {
-        // Send a high-priority data-only message so that onMessageReceived triggers
-        // and plays the custom sound even if the app is in the background or closed.
+        // Send a high-priority message containing both notification (for OS-level display when closed)
+        // and data blocks (for app-level consumption when active).
         await getMessaging().send({
           token,
+          notification: {
+            title,
+            body: message,
+          },
           data: {
             alertId,
             severity,
@@ -216,6 +229,9 @@ export class NotificationsProcessor extends WorkerHost {
           },
           android: {
             priority: 'high',
+            notification: {
+              channelId: targetChannelId,
+            },
           },
         });
       } catch (error: any) {
