@@ -150,7 +150,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         const prevRole = payload.prevAssignedToRole || 'specific';
         const nextRole = payload.assignedToRole || 'specific';
         silentPayload.title = `Alert Escalated: ${payload.defectName || 'Alert'}`;
-        silentPayload.message = `this alert is not taken over the ${prevRole} role so the alert escalate to next ${nextRole} role in the chain whatever the role.`;
+        silentPayload.message = nextRole && nextRole !== 'specific'
+          ? `this alert is not taken over the ${prevRole} role so the alert escalate to next ${nextRole} role in the chain.`
+          : `this alert is not taken over the ${prevRole} role so the alert escalate to whatever next role in the chain.`;
       } else {
         delete silentPayload.title;
         delete silentPayload.message;

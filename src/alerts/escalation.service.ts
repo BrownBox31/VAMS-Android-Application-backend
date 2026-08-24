@@ -393,7 +393,9 @@ export class EscalationService implements OnModuleInit {
         const prevRoleStr = currentRole || 'specific';
         const nextRoleStr = nextUserRole || 'specific';
         const title = `Alert Escalated: ${alert.defect?.name || alert.defectName || 'Alert'}`;
-        const message = `this alert is not taken over the ${prevRoleStr} role so the alert escalate to next ${nextRoleStr} role in the chain whatever the role.`;
+        const message = nextUserRole
+          ? `this alert is not taken over the ${prevRoleStr} role so the alert escalate to next ${nextRoleStr} role in the chain.`
+          : `this alert is not taken over the ${prevRoleStr} role so the alert escalate to whatever next role in the chain.`;
 
         for (const u of prevUsers) {
           await this.notifications.enqueueNotification({
