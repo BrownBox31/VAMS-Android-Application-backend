@@ -206,6 +206,16 @@ export class EscalationService implements OnModuleInit {
       }
     }
 
+    if (isBreached) {
+      if (currentRole !== UserRole.SUPER_ADMIN) {
+        nextUserRole = nextRole;
+        nextUserId = null;
+        nextEscalationAt = new Date(Date.now() + incrementMin * 60 * 1000);
+        isBreached = false;
+        breachedReason = '';
+      }
+    }
+
     // Ensure escalation climbs to the next role tier to prevent infinite loop or staying in the same role (only if not using custom escalation chain)
     if (!isBreached && definitionChain.length === 0 && nextUserRole === currentRole) {
       if (currentRole === UserRole.WORKER || currentRole === UserRole.QUALITY_INSPECTOR || currentRole === UserRole.SERVICE_ENGINEER) {
