@@ -7,6 +7,8 @@ import { AlertStatus, UserRole, Severity, NotificationChannel } from '@prisma/cl
 @Injectable()
 export class EscalationService implements OnModuleInit {
   private readonly logger = new Logger(EscalationService.name);
+  private isProcessing = false;
+  private processingAlertIds = new Set<string>();
 
   constructor(
     private prisma: PrismaService,
@@ -15,14 +17,14 @@ export class EscalationService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    // Run the check every 60 seconds (1 minute interval)
+    // Run the check every 1 second (1000ms interval) for immediate escalation
     setInterval(async () => {
       try {
         await this.processEscalations();
       } catch (err) {
         this.logger.error('Error running periodic escalations:', err);
       }
-    }, 60000);
+    }, 1000);
   }
 
   /**
@@ -30,31 +32,46 @@ export class EscalationService implements OnModuleInit {
    * Can be invoked by a cron scheduler task in main app module.
    */
   async processEscalations() {
-    const now = new Date();
-
-    // Query active alerts requiring immediate escalation (excluding RESOLVED and BREACHED)
-    const overdueAlerts = await this.prisma.alert.findMany({
-      where: {
-        status: { in: [AlertStatus.OPEN, AlertStatus.REOPENED] },
-        nextEscalationAt: { lte: now },
-      },
-      include: {
-        defect: true,
-      },
-    });
-
-    if (overdueAlerts.length === 0) {
+    if (this.isProcessing) {
       return;
     }
+    this.isProcessing = true;
 
-    this.logger.log(`Found ${overdueAlerts.length} overdue alerts. Processing escalations...`);
+    try {
+      const now = new Date();
 
-    for (const alert of overdueAlerts) {
-      try {
-        await this.escalateAlert(alert);
-      } catch (err) {
-        this.logger.error(`Failed to escalate alert ${alert.id}:`, err.stack);
+      // Query active alerts requiring immediate escalation (excluding RESOLVED and BREACHED)
+      const overdueAlerts = await this.prisma.alert.findMany({
+        where: {
+          status: { in: [AlertStatus.OPEN, AlertStatus.REOPENED] },
+          nextEscalationAt: { lte: now },
+        },
+        include: {
+          defect: true,
+        },
+      });
+
+      if (overdueAlerts.length === 0) {
+        return;
       }
+
+      this.logger.log(`Found ${overdueAlerts.length} overdue alerts. Processing escalations...`);
+
+      for (const alert of overdueAlerts) {
+        if (this.processingAlertIds.has(alert.id)) {
+          continue;
+        }
+        this.processingAlertIds.add(alert.id);
+        try {
+          await this.escalateAlert(alert);
+        } catch (err) {
+          this.logger.error(`Failed to escalate alert ${alert.id}:`, err.stack);
+        } finally {
+          this.processingAlertIds.delete(alert.id);
+        }
+      }
+    } finally {
+      this.isProcessing = false;
     }
   }
 
@@ -348,9 +365,50 @@ export class EscalationService implements OnModuleInit {
       assignedToRole: nextUserRole as UserRole,
       prevAssignedToUserId: alert.assignedToUserId,
       prevAssignedToRole: alert.assignedToRole,
+      isEscalation: true,
+      defectName: alert.defect?.name || alert.defectName || 'Alert',
       title: `Alert Escalated: ${alert.defect?.name || 'Alert'}`,
       message: `Overdue alert for VIN ${alert.vin || 'N/A'} has been escalated/reassigned to role ${nextUserRole}.`,
     });
+
+    // Notify previous assignee or previous role users (with the requirement 3 message)
+    (async () => {
+      try {
+        let prevUsers: any[] = [];
+        if (alert.assignedToUserId) {
+          const u = await this.prisma.user.findUnique({
+            where: { id: alert.assignedToUserId, isActive: true },
+          });
+          if (u) prevUsers.push(u);
+        } else if (currentRole) {
+          prevUsers = await this.prisma.user.findMany({
+            where: {
+              role: currentRole as any,
+              companyId: alert.companyId,
+              isActive: true,
+            },
+          });
+        }
+
+        const prevRoleStr = currentRole || 'specific';
+        const nextRoleStr = nextUserRole || 'specific';
+        const title = `Alert Escalated: ${alert.defect?.name || alert.defectName || 'Alert'}`;
+        const message = `this alert is not taken over the ${prevRoleStr} role so the alert escalate to next ${nextRoleStr} role in the chain whatever the role.`;
+
+        for (const u of prevUsers) {
+          await this.notifications.enqueueNotification({
+            companyId: alert.companyId,
+            userId: u.id,
+            alertId: alert.id,
+            title,
+            message,
+            channels: [NotificationChannel.PUSH, NotificationChannel.IN_APP],
+          });
+        }
+      } catch (err) {
+        this.logger.error('[Escalation Notification] Failed to notify previous users:', err);
+      }
+    })();
 
     // Determine user IDs to notify (notify all active users of the nextUserRole)
     const notifyUserIds = candidateUsers.map((m) => m.id);

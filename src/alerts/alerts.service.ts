@@ -567,11 +567,20 @@ export class AlertsService {
                             user.role === alert.assignedToRole;
 
       if (!isSelfTakeover) {
-        if (alert.assignedToUserId !== performedByUserId) {
+        // If they are trying to take it over themselves, but it is already assigned to someone else
+        if (data.assignedToUserId === performedByUserId && alert.assignedToUserId !== null) {
+          throw new ForbiddenException('this alert already taken over the user of our role.');
+        }
+
+        const isPeerSameRole = user.role === alert.assignedToRole && targetUser && targetUser.role === user.role;
+
+        if (alert.assignedToUserId !== performedByUserId && !isPeerSameRole) {
           throw new ForbiddenException('Only the current assignee can reassign this alert');
         }
-        if (alert.status !== AlertStatus.IN_PROGRESS) {
-          throw new BadRequestException('Alert must be taken over before reassigning');
+        if (!isPeerSameRole) {
+          if (alert.status !== AlertStatus.IN_PROGRESS && alert.status !== AlertStatus.RESOLVED) {
+            throw new BadRequestException('Alert must be taken over or resolved before reassigning');
+          }
         }
         if (!targetUser) {
           throw new BadRequestException('Same-role peer reassignment requires a specific target user ID');
@@ -1572,10 +1581,10 @@ export class AlertsService {
     (async () => {
       try {
         let targetUsers: any[] = [];
-        if (alert.assignedToRole) {
+        if (user.role) {
           targetUsers = await this.prisma.user.findMany({
             where: {
-              role: alert.assignedToRole as any,
+              role: user.role as any,
               companyId,
               isActive: true,
               id: { not: userId },

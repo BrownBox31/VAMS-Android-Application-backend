@@ -146,39 +146,65 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const isTakeover = event === 'ALERT_ASSIGNED' && payload.assignedToUserId && !payload.prevAssignedToUserId;
       if (isTakeover) {
         silentPayload.isTakeoverNotification = true;
+      } else if (payload.isEscalation) {
+        const prevRole = payload.prevAssignedToRole || 'specific';
+        const nextRole = payload.assignedToRole || 'specific';
+        silentPayload.title = `Alert Escalated: ${payload.defectName || 'Alert'}`;
+        silentPayload.message = `this alert is not taken over the ${prevRole} role so the alert escalate to next ${nextRole} role in the chain whatever the role.`;
       } else {
         delete silentPayload.title;
         delete silentPayload.message;
       }
 
-      let silentBuilder = null;
+      // Collect all rooms that should receive the silent update
+      const silentRooms: string[] = [];
+
       if (prevAssignedToUserId) {
         const prevUserRoom = `company_${companyId}_user_${prevAssignedToUserId}`;
-        silentBuilder = this.server.to(prevUserRoom);
-      } else {
-        if (prevAssignedToRole) {
-          if (prevAssignedToRole === 'COMPANY_ADMIN' || prevAssignedToRole === 'SUPER_ADMIN') {
-            silentBuilder = this.server
-              .to(`company_${companyId}_role_COMPANY_ADMIN`)
-              .to(`company_${companyId}_role_SUPER_ADMIN`);
-          } else {
-            const prevRoleRoom = `company_${companyId}_role_${prevAssignedToRole}`;
-            silentBuilder = silentBuilder ? silentBuilder.to(prevRoleRoom) : this.server.to(prevRoleRoom);
-          }
+        if (!targetRooms.includes(prevUserRoom)) {
+          silentRooms.push(prevUserRoom);
         }
-        if (steppedFromRole) {
-          if (steppedFromRole === 'COMPANY_ADMIN' || steppedFromRole === 'SUPER_ADMIN') {
-            silentBuilder = silentBuilder
-              ? silentBuilder.to(`company_${companyId}_role_COMPANY_ADMIN`).to(`company_${companyId}_role_SUPER_ADMIN`)
-              : this.server.to(`company_${companyId}_role_COMPANY_ADMIN`).to(`company_${companyId}_role_SUPER_ADMIN`);
-          } else {
-            const steppedFromRoom = `company_${companyId}_role_${steppedFromRole}`;
-            silentBuilder = silentBuilder ? silentBuilder.to(steppedFromRoom) : this.server.to(steppedFromRoom);
+      }
+
+      // If it is a takeover, only notify the previous role if it is the same as the new role!
+      // If it's an escalation, previous role should receive the update (with the new escalation title & message).
+      const shouldNotifyPrevRole = !isTakeover || prevAssignedToRole === assignedToRole;
+
+      if (prevAssignedToRole && shouldNotifyPrevRole) {
+        const prevRoleRooms = [];
+        if (prevAssignedToRole === 'COMPANY_ADMIN' || prevAssignedToRole === 'SUPER_ADMIN') {
+          prevRoleRooms.push(`company_${companyId}_role_COMPANY_ADMIN`);
+          prevRoleRooms.push(`company_${companyId}_role_SUPER_ADMIN`);
+        } else {
+          prevRoleRooms.push(`company_${companyId}_role_${prevAssignedToRole}`);
+        }
+        for (const room of prevRoleRooms) {
+          if (!targetRooms.includes(room) && !silentRooms.includes(room)) {
+            silentRooms.push(room);
           }
         }
       }
 
-      if (silentBuilder) {
+      if (steppedFromRole) {
+        const steppedRooms = [];
+        if (steppedFromRole === 'COMPANY_ADMIN' || steppedFromRole === 'SUPER_ADMIN') {
+          steppedRooms.push(`company_${companyId}_role_COMPANY_ADMIN`);
+          steppedRooms.push(`company_${companyId}_role_SUPER_ADMIN`);
+        } else {
+          steppedRooms.push(`company_${companyId}_role_${steppedFromRole}`);
+        }
+        for (const room of steppedRooms) {
+          if (!targetRooms.includes(room) && !silentRooms.includes(room)) {
+            silentRooms.push(room);
+          }
+        }
+      }
+
+      if (silentRooms.length > 0) {
+        let silentBuilder = this.server.to(silentRooms[0]);
+        for (let i = 1; i < silentRooms.length; i++) {
+          silentBuilder = silentBuilder.to(silentRooms[i]);
+        }
         silentBuilder.emit(event, silentPayload);
       }
 
